@@ -98,5 +98,11 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+  kafka-broker:
+    image: apache/kafka
+    ports:
+      - "9092:9092"
+    networks:
+      iceberg_net:
 networks:
   iceberg_net:

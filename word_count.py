@@ -1,29 +1,11 @@
-################################################################################
-#  Licensed to the Apache Software Foundation (ASF) under one
-#  or more contributor license agreements.  See the NOTICE file
-#  distributed with this work for additional information
-#  regarding copyright ownership.  The ASF licenses this file
-#  to you under the Apache License, Version 2.0 (the
-#  "License"); you may not use this file except in compliance
-#  with the License.  You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-# limitations under the License.
-################################################################################
-import argparse
+# derived from https://github.com/apache/flink/blob/release-1.20/flink-python/pyflink/examples/datastream/word_count.py
 import logging
 import sys
 
-from pyflink.common import WatermarkStrategy, Encoder, Types
-from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode
-from pyflink.datastream.connectors.file_system import (FileSource, StreamFormat, FileSink,
-                                                       OutputFileConfig, RollingPolicy)
-
+from pyflink.common import Types
+from pyflink.common.serialization import SimpleStringSchema
+from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode, DataStream
+from pyflink.datastream.connectors.kafka import KafkaSink, KafkaRecordSerializationSchema, DeliveryGuarantee
 
 word_count_data = ["To be, or not to be,--that is the question:--",
                    "Whether 'tis nobler in the mind to suffer",
@@ -62,73 +44,44 @@ word_count_data = ["To be, or not to be,--that is the question:--",
                    "Be all my sins remember'd."]
 
 
-def word_count(input_path, output_path):
+def word_count():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_runtime_mode(RuntimeExecutionMode.BATCH)
+    env.add_jars('file:///opt/flink/lib/flink-connector-kafka-3.3.0-1.20.jar', 'file:///opt/flink/lib/kafka-clients-3.4.0.jar')
     # write all the data to one file
     env.set_parallelism(1)
 
-    # define the source
-    if input_path is not None:
-        ds = env.from_source(
-            source=FileSource.for_record_stream_format(StreamFormat.text_line_format(),
-                                                       input_path)
-                             .process_static_file_set().build(),
-            watermark_strategy=WatermarkStrategy.for_monotonous_timestamps(),
-            source_name="file_source"
-        )
-    else:
-        print("Executing word_count example with default input data set.")
-        print("Use --input to specify file input.")
-        ds = env.from_collection(word_count_data)
+    # source
+    ds: DataStream = env.from_collection(word_count_data)
 
     def split(line):
         yield from line.split()
 
     # compute word count
-    ds = ds.flat_map(split) \
+    processed_ds: DataStream = ds.flat_map(split) \
            .map(lambda i: (i, 1), output_type=Types.TUPLE([Types.STRING(), Types.INT()])) \
            .key_by(lambda i: i[0]) \
            .reduce(lambda i, j: (i[0], i[1] + j[1]))
 
+    print('Printing result to stdout.')
+    processed_ds.print()
+
     # define the sink
-    if output_path is not None:
-        ds.sink_to(
-            sink=FileSink.for_row_format(
-                base_path=output_path,
-                encoder=Encoder.simple_string_encoder())
-            .with_output_file_config(
-                OutputFileConfig.builder()
-                .with_part_prefix("prefix")
-                .with_part_suffix(".ext")
-                .build())
-            .with_rolling_policy(RollingPolicy.default_rolling_policy())
-            .build()
-        )
-    else:
-        print("Printing result to stdout. Use --output to specify output path.")
-        ds.print()
+    kafka_sink: KafkaSink = KafkaSink.builder() \
+        .set_bootstrap_servers('host.docker.internal:9092') \
+        .set_record_serializer(
+            KafkaRecordSerializationSchema.builder()
+                .set_topic('test-topic')
+                .set_value_serialization_schema(SimpleStringSchema())
+                .build()
+            ) \
+        .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
+        .build()
+    ds.sink_to(kafka_sink)
 
     # submit for execution
     env.execute()
 
-
 if __name__ == '__main__':
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--input',
-        dest='input',
-        required=False,
-        help='Input file to process.')
-    parser.add_argument(
-        '--output',
-        dest='output',
-        required=False,
-        help='Output file to write results to.')
-
-    argv = sys.argv[1:]
-    known_args, _ = parser.parse_known_args(argv)
-
-    word_count(known_args.input, known_args.output)
+    word_count()
