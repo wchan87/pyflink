@@ -5,7 +5,8 @@ import sys
 from pyflink.common import Types
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode, DataStream
-from pyflink.datastream.connectors.kafka import KafkaSink, KafkaRecordSerializationSchema, DeliveryGuarantee
+from pyflink.datastream.connectors.kafka import KafkaSink, KafkaRecordSerializationSchema
+from pyflink.datastream.connectors import DeliveryGuarantee
 
 word_count_data = ["To be, or not to be,--that is the question:--",
                    "Whether 'tis nobler in the mind to suffer",
@@ -47,7 +48,6 @@ word_count_data = ["To be, or not to be,--that is the question:--",
 def word_count():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_runtime_mode(RuntimeExecutionMode.BATCH)
-    env.add_jars('file:///opt/flink/lib/flink-connector-kafka-3.3.0-1.20.jar', 'file:///opt/flink/lib/kafka-clients-3.4.0.jar')
     # write all the data to one file
     env.set_parallelism(1)
 
@@ -68,7 +68,7 @@ def word_count():
 
     # define the sink
     kafka_sink: KafkaSink = KafkaSink.builder() \
-        .set_bootstrap_servers('host.docker.internal:9092') \
+        .set_bootstrap_servers('kafka:9092') \
         .set_record_serializer(
             KafkaRecordSerializationSchema.builder()
                 .set_topic('test-topic')
@@ -77,7 +77,7 @@ def word_count():
             ) \
         .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
         .build()
-    ds.sink_to(kafka_sink)
+    ds.map(lambda x: x, output_type=Types.STRING()).sink_to(kafka_sink)
 
     # submit for execution
     env.execute()

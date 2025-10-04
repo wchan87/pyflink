@@ -1,3 +1,6 @@
 .idea/
 lib/*
 !lib/.gitkeep
+build/
+.gradle/
+.venv/

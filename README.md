@@ -53,7 +53,7 @@ The [docker-compose.yml](docker-compose.yml) was updated to include [apache/kafk
     ```
 2. Run docker exec to "remote" into the container, alternatively use "Exec" tab on Docker Desktop
     ```bash
-    docker exec --workdir /opt/kafka/bin/ -it pyflink-kafka-broker-1 sh
+    docker exec --workdir /opt/kafka/bin/ -it kafka sh
     ```
 3. Create topic to begin pushing events into
     ```bash
@@ -76,8 +76,10 @@ curl -o lib/flink-connector-kafka-3.3.0-1.20.jar https://repo1.maven.org/maven2/
 curl -o lib/kafka-clients-3.4.0.jar https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.4.0/kafka-clients-3.4.0.jar
 ```
 
-The `--jarfile` argument for Flink CLI can be used to upload the jars to the task managers but it may not be relevant
-due to mounting the files to the `/opt/flink/lib` which is already part of the Flink classpath.
+The `--jarfile` argument appears to only support one uber jar that is assembled via [build.gradle](build.gradle) as `build/libs/pyflink-1.0.0-uber.jar`
+```bash
+gradle shadowJar --stacktrace
+```
 
 ## PyFlink Job Submission
 
@@ -90,13 +92,10 @@ Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apach
     ```bash
     docker run -it --rm \
        -v $(pwd):/opt/flink/app \
-       -v $(pwd)/lib/flink-connector-kafka-3.3.0-1.20.jar:/opt/flink/lib/flink-connector-kafka-3.3.0-1.20.jar \
-       -v $(pwd)/lib/kafka-clients-3.4.0.jar:/opt/flink/lib/kafka-clients-3.4.0.jar \
+       -v $(pwd)/build/libs/pyflink-1.0.0-uber.jar:/opt/flink/lib/pyflink-1.0.0-uber.jar \
        pyflink:1.20.2 \
        /opt/flink/bin/flink run \
        --jobmanager http://host.docker.internal:8081 \
-       --python /opt/flink/app/word_count.py
+       --python /opt/flink/app/word_count.py \
+       --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
     ```
-
-The current code fails with the following exception:
-> Caused by: java.lang.ClassNotFoundException: org.apache.flink.connector.kafka.sink.KafkaSink

@@ -1,0 +1,35 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '9.2.2'
+}
+
+group = 'com.chanwr'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Include only the specified JARs without transitive dependencies
+    implementation('org.apache.flink:flink-connector-kafka:3.3.0-1.20') {
+        transitive = false
+    }
+    implementation('org.apache.kafka:kafka-clients:3.4.0') {
+        transitive = false
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+    options.release = 11 // or your target Java version
+}
+
+tasks.shadowJar {
+    archiveClassifier.set('uber')
+    mergeServiceFiles() // handles META-INF/services/* conflicts
+    // Exclude problematic META-INF files
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+}
