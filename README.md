@@ -43,6 +43,7 @@ For Edge, disable automatic HTTPS rerouting, `edge://flags/#edge-automatic-https
 * MinIO Console - http://localhost:9001/login - `admin` / `password`
 * Apache Spark Web UI - http://localhost:8080/
 * Jupyter Server - http://localhost:8888/
+* Hive - `jdbc:hive2://localhost:10000` - `beeline` / (no password)
 * [Kafka](#kafka) - `locahost:9000` (from your local machine), `host.docker.internal:9000` (from within any container) or `kafka:9000` (from within container attached to network)
 
 ## Kafka
@@ -154,6 +155,49 @@ The documentation isn't explicitly clear about the exact change but based on tri
             s3.endpoint: http://minio:9000
             s3.path.style.access: true 
     ```
+
+## Iceberg
+
+Additional research is needed to confirm how to access Iceberg but it appears that the REST API accessible via http://localhost:8181 is the [REST Catalog Spec](https://iceberg.apache.org/rest-catalog-spec/) that adheres to the [OpenAPI specification here](https://editor-next.swagger.io/?url=https://raw.githubusercontent.com/apache/iceberg/main/open-api/rest-catalog-open-api.yaml).
+
+Iceberg should also be accessible via `jdbc:hive2://localhost:10000` with the user being `beeline` and password being blank. Some database clients may run into an error connecting to Hive due to default namespace, database and/or schema not setup yet. More work is needed to confirm how to set up Hive (which is one way to implement Iceberg) properly.
+```bash
+docker exec -it spark-iceberg beeline -u jdbc:hive2://localhost:10000/
+```
+
+It seems that if you create the table first, then Hive is accessible
+1. Connect via Spark SQL interface. `quit;` to exit the interface
+    ```bash
+    docker exec -it spark-iceberg spark-sql 
+    ```
+2. Create the table specified in [here](https://iceberg.apache.org/spark-quickstart/#creating-a-table)
+    ```sql
+    CREATE TABLE demo.nyc.taxis
+    (
+      vendor_id bigint,
+      trip_id bigint,
+      trip_distance float,
+      fare_amount double,
+      store_and_fwd_flag string
+    )
+    PARTITIONED BY (vendor_id);
+    ```
+3. Connect via Beeline with the database, `demo` being defined. `!q` to exit the interface.
+    ```bash
+    docker exec -it spark-iceberg beeline -u jdbc:hive2://localhost:10000/demo
+    ```
+4. Check the table was created successfully from before.
+    ```sql
+    SELECT * FROM demo.nyc.taxis;
+    ```
+
+### Iceberg Flink Runtime
+
+There appears to be additional work to integrate with Iceberg as a sink. See the resources below:
+* https://iceberg.apache.org/docs/latest/flink/
+* https://github.com/databricks/docker-spark-iceberg/blob/main/flink-example/src/main/java/io/tabular/flink/lor/example/LORSink.java
+* https://github.com/gordonmurray/apache_flink_and_iceberg
+* https://stackoverflow.com/questions/78545821/how-to-write-with-pyflink-flink-into-apache-iceberg-on-amazon-s3-with-table-api
 
 ## Data Stream Format 
 
