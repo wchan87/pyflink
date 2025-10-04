@@ -43,6 +43,7 @@ For Edge, disable automatic HTTPS rerouting, `edge://flags/#edge-automatic-https
 * MinIO Console - http://localhost:9001/login - `admin` / `password`
 * Apache Spark Web UI - http://localhost:8080/
 * Jupyter Server - http://localhost:8888/
+* [Kafka](#kafka) - `locahost:9000` (from your local machine), `host.docker.internal:9000` (from within any container) or `kafka:9000` (from within container attached to network)
 
 ## Kafka
 
@@ -81,9 +82,102 @@ The `--jarfile` argument appears to only support one uber jar that is assembled 
 gradle shadowJar --stacktrace
 ```
 
+## MinIO
+
+MinIO can be interacted with via the MinIO Client (i.e., `mc`)  along with the MinIO Console accessible via http://localhost:9000.
+
+To use the MinIO client,
+1. Set up interactive session on the MinIO Client container
+    ```bash
+    docker exec -it mc bash
+    ```
+2. Since the alias, `minio` was setup via `docker-compose.yml`, you can run other commands documented [here](https://docs.min.io/community/minio-object-store/reference/minio-mc.html)
+    ```bash
+    mc ls minio/raw
+    ```
+
+Alternatively, you can also use AWS CLI to interact with the buckets created as documented [here](https://docs.min.io/community/minio-object-store/integrations/aws-cli-with-minio.html)
+1. Configure the default profile to point to the MinIO server
+    ```bash
+    aws configure
+    ```
+    ```
+    AWS Access Key ID [None]: admin
+    AWS Secret Access Key [None]: password
+    Default region name [None]: us-east-1
+    Default output format [None]:
+    ```
+2. Optional configuration can also be setup but they are not necessary
+    1. The first configuration is mentioned in the MinIO documentation but it seems to be relevant only for the online version at https://play.min.io:9000.
+        ```bash
+        aws configure set default.s3.signature_version s3v4
+        ```
+    2. The second configuration is to avoid passing `--endpoint-url http://localhost:9000` each time to override the AWS end point.
+It's recommended in this scenario to be explicit as overriding the `default.endpoint_url` via configuration can impact actual usage of AWS services.
+        ```bash
+        aws configure set default.endpoint_url http://localhost:9000
+        ```
+3. Example commands to interact with the MinIO server
+    1. Check what buckets are available
+        ```bash
+        aws --endpoint-url http://localhost:9000 s3 ls
+        ```
+    2. Check what's in the `s3://raw` bucket created
+        ```bash
+        aws --endpoint-url http://localhost:9000 s3 ls s3://raw
+        ```
+    3. Download some [data source](#data-sources) to test streaming (ex: https://catalog.data.gov/dataset/lottery-powerball-winning-numbers-beginning-2010 which is assumed to be in your `Downloads` folder). The command below will copy the file to the `s3://raw` bucket. **Note** that the `$USERPROFILE` is used in the command because AWS CLI can't handle what Git Bash (therefore MinGW) does with the absolute path.
+        ```bash
+        aws --endpoint-url http://localhost:9000 s3 cp "$USERPROFILE/Downloads/Lottery_Powerball_Winning_Numbers__Beginning_2010.csv" s3://raw/
+        ```
+
+### Flink Plugin - S3 File System
+
+To utilize MinIO within a Flink job, you will be leveraging the [FileSystem connector](https://nightlies.apache.org/flink/flink-docs-lts/docs/connectors/datastream/filesystem/) but support for S3 comes through [Hadoop/Presto S3 File Systems plugins](https://nightlies.apache.org/flink/flink-docs-lts/docs/deployment/filesystems/s3/#hadooppresto-s3-file-systems-plugins) which have to be in the Flink job/task manager to work.
+
+See [here](https://nightlies.apache.org/flink/flink-docs-lts/docs/deployment/filesystems/plugins/) for how plugins work in general but for reading files, the recommendation seems to be the Hadoop variant, [org.apache.flink:flink-s3-fs-hadoop:1.20.2](https://mvnrepository.com/artifact/org.apache.flink/flink-s3-fs-hadoop/1.20.2).
+The documentation isn't explicitly clear about the exact change but based on trial and error, two additional changes to [docker-compose.yml](docker-compose.yml) was sufficient to enable Flink to read from S3:
+* For `services.flink-jobmanager.environment` and `services.flink-taskmanager.environment`, add the following which seems to load the built-in plugin within the image:
+    ```yaml
+        environment:
+          ...
+          - ENABLE_BUILT_IN_PLUGINS=flink-s3-fs-hadoop-1.20.2.jar
+    ```
+* For `services.flink-jobmanager.environment` and `services.flink-taskmanager.environment`, add the following to the existing `FLINK_PROPERTIES` variable:
+    ```yaml
+        environment:
+          - |
+            FLINK_PROPERTIES=
+            ...
+            s3.access-key: admin
+            s3.secret-key: password
+            s3.endpoint: http://minio:9000
+            s3.path.style.access: true 
+    ```
+
+## Data Stream Format 
+
+This section is for for additional references and notes regarding handling data stream formats such as CSV and possibly fixed width mixed record type files.
+
+### Data Stream Format - CSV
+
+See [CSV format](https://nightlies.apache.org/flink/flink-docs-lts/docs/connectors/datastream/formats/csv/) for more information. Additional work is needed to get the CSV that's read by [process_csv.py](process_csv.py) to be interpreted correctly (i.e., header isn't propagated and data is broken down into columns).
+
+### Data Sources
+
+Some public and free data sources for testing streaming from [24 Free Public Datasets Sites Every Data Analyst Must Know](https://datahypothesis.com/free-public-datasets-data-analyst-must-know/)
+* https://archive-beta.ics.uci.edu/
+* https://data.gov/
+* https://www.bls.gov/
+* https://cloud.google.com/bigquery/public-data
+* https://www.kaggle.com/
+* https://developer.ibm.com/exchanges/data/
+* https://learn.microsoft.com/en-us/azure/open-datasets/dataset-catalog
+* https://www.who.int/data/
+
 ## PyFlink Job Submission
 
-Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apache.org/flink/flink-docs-lts/docs/deployment/cli/#submitting-pyflink-jobs) to submit PyFlink job, specifically [word_count.py](word_count.py) which is based on copy from [flink-python/pyflink/examples/datastream/word_count.py](https://github.com/apache/flink/blob/release-1.20/flink-python/pyflink/examples/datastream/word_count.py)
+Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apache.org/flink/flink-docs-lts/docs/deployment/cli/#submitting-pyflink-jobs) to submit PyFlink job, specifically [process_csv.py](process_csv.py)
 1. Disable Windows path resolution
     ```bash
     export MSYS_NO_PATHCONV=1
@@ -96,6 +190,6 @@ Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apach
        pyflink:1.20.2 \
        /opt/flink/bin/flink run \
        --jobmanager http://host.docker.internal:8081 \
-       --python /opt/flink/app/word_count.py \
+       --python /opt/flink/app/process_csv.py \
        --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
     ```
