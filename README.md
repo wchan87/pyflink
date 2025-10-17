@@ -65,6 +65,18 @@ The [docker-compose.yml](docker-compose.yml) was updated to include [apache/kafk
     ```bash
     ./kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic test-topic --from-beginning
     ```
+5. Delete topic to clean up events
+    ```bash
+    ./kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic test-topic
+    ```
+
+The original implementation of Kafka listeners/ports specified by the [override suggestions for default broker configuration](https://hub.docker.com/r/apache/kafka/#overriding-the-default-broker-configuration) was in turn overridden based on [multiple nodes](https://hub.docker.com/r/apache/kafka/#multiple-nodes) and [Connect to Apache Kafka Running in Docker](https://www.baeldung.com/kafka-docker-connection) such that
+* `ports` changes to `"19092:19092"`
+* `environment.KAFKA_LISTENERS` added `PLAINTEXT_HOST://0.0.0.0:19092`
+* `environment.KAFKA_ADVERTISED_LISTENERS` added `PLAINTEXT_HOST://localhost:19092`
+* `environment.KAFKA_LISTENER_SECURITY_PROTOCOL_MAP` added `PLAINTEXT_HOST:PLAINTEXT`
+
+The above change ensure that within the Docker containers in the network, the Kafka broker is accessible via port `9092` and within the host, the Kafka broker is accessible via port `19092`.
 
 ### Flink Connector - Kafka
 

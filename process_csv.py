@@ -4,7 +4,7 @@ import logging
 import sys
 
 from pyflink.common import Row, Types
-from pyflink.common.serialization import SimpleStringSchema
+# from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common.typeinfo import RowTypeInfo
 from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode, DataStream, MapFunction
 from pyflink.datastream.connectors.kafka import KafkaSink, KafkaRecordSerializationSchema
@@ -25,8 +25,10 @@ def create_csv_schema() -> CsvSchema:
 
 class CsvRecordMapper(MapFunction):
     source_line_number: int
+    logger: logging.Logger
 
-    def __init__(self):
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
         self.source_line_number = 1 # skips the header
 
     def parse_winning_numbers(self, winning_numbers_str: str) -> list[int]:
@@ -44,6 +46,36 @@ class CsvRecordMapper(MapFunction):
         )
         return draw_date, row
 
+class CsvRecordMapperFlattened(MapFunction):
+    source_line_number: int
+    logger: logging.Logger
+
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.source_line_number = 1 # skips the header
+
+    def parse_winning_numbers(self, winning_numbers_str: str) -> list[int]:
+        return [int(x) for x in winning_numbers_str.strip().split(' ') if x.isdigit()]
+
+    def map(self, record: Row) -> Row:
+        # Row is accessed by index
+        draw_date: str = datetime.strftime(datetime.strptime(record[0], '%m/%d/%Y'), '%Y-%m-%d')
+        winning_numbers: list[int] = self.parse_winning_numbers(record[1])
+        self.source_line_number += 1 # increment by 1
+        self.logger.info(f'Reading data row: {record} from source line number: {self.source_line_number}')
+        row: Row = Row(
+            draw_date,
+            winning_numbers[0],
+            winning_numbers[1],
+            winning_numbers[2],
+            winning_numbers[3],
+            winning_numbers[4],
+            winning_numbers[5],
+            record[2],
+            self.source_line_number
+        )
+        return row
+
 def create_avro_schema() -> str:
     avro_schema = {
         'type': 'record',
@@ -51,7 +83,25 @@ def create_avro_schema() -> str:
         'fields': [
             {'name': 'draw_date', 'type': 'string'},
             {'name': 'winning_numbers', 'type': {'type': 'array', 'items': 'int'}},
-            {'name': 'multiplier', 'type': 'int'},
+            {'name': 'multiplier', 'type': ['int', 'null']},
+            {'name': 'source_line_number', 'type': 'int'},
+        ]
+    }
+    return json.dumps(avro_schema)
+
+def create_avro_schema_flattened() -> str:
+    avro_schema = {
+        'type': 'record',
+        'name': 'Lottery',
+        'fields': [
+            {'name': 'draw_date', 'type': 'string'},
+            {'name': 'winning_number_1', 'type': 'int'},
+            {'name': 'winning_number_2', 'type': 'int'},
+            {'name': 'winning_number_3', 'type': 'int'},
+            {'name': 'winning_number_4', 'type': 'int'},
+            {'name': 'winning_number_5', 'type': 'int'},
+            {'name': 'winning_number_6', 'type': 'int'},
+            {'name': 'multiplier', 'type': ['int', 'null']},
             {'name': 'source_line_number', 'type': 'int'},
         ]
     }
@@ -63,9 +113,16 @@ def create_avro_type_info() -> RowTypeInfo:
         ['draw_date', 'winning_numbers', 'multiplier', 'source_line_number']
     )
 
+def create_avro_type_info_flattened() -> RowTypeInfo:
+    return RowTypeInfo(
+        [Types.STRING(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT()],
+        ['draw_date', 'winning_number_1', 'winning_number_2', 'winning_number_3', 'winning_number_4', 'winning_number_5', 'winning_number_6', 'multiplier', 'source_line_number']
+    )
+
 def process():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_runtime_mode(RuntimeExecutionMode.BATCH)
+    logger: logging.Logger = logging.getLogger(__name__)
 
     # https://nightlies.apache.org/flink/flink-docs-lts/api/python/reference/pyflink.datastream/api/pyflink.datastream.formats.csv.CsvReaderFormat.html
     # TODO this results in java.lang.IllegalAccessError: class org.apache.flink.formats.csv.PythonCsvUtils tried to access method 'void org.apache.flink.formats.csv.CsvReaderFormat.<init>(org.apache.flink.util.function.SerializableSupplier, org.apache.flink.util.function.SerializableFunction, java.lang.Class, org.apache.flink.formats.common.Converter, org.apache.flink.api.common.typeinfo.TypeInformation, boolean)' (org.apache.flink.formats.csv.PythonCsvUtils is in unnamed module of loader org.apache.flink.util.ChildFirstClassLoader @6f7923a5; org.apache.flink.formats.csv.CsvReaderFormat is in unnamed module of loader 'app')
@@ -104,15 +161,17 @@ def process():
         .set_record_serializer(
             KafkaRecordSerializationSchema.builder()
                 .set_topic('test-topic')
-                .set_key_serialization_schema(SimpleStringSchema())
-                .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema()))
+                # .set_key_serialization_schema(SimpleStringSchema())
+                # .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema()))
+                .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema_flattened()))
                 .build()
             ) \
         .set_delivery_guarantee(DeliveryGuarantee.EXACTLY_ONCE) \
         .set_property('transaction.timeout.ms', '600000')  \
         .build()
     # FIXME this still fails on ClassCastException: class org.apache.flink.api.java.tuple.Tuple2 cannot be cast to class org.apache.flink.types.Row
-    ds.map(CsvRecordMapper(), output_type=Types.TUPLE([Types.STRING(), create_avro_type_info()])).sink_to(kafka_sink)
+    # ds.map(CsvRecordMapper(logger), output_type=Types.TUPLE([Types.STRING(), create_avro_type_info()])).sink_to(kafka_sink)
+    ds.map(CsvRecordMapperFlattened(logger), output_type=create_avro_type_info_flattened()).sink_to(kafka_sink)
 
     # submit for execution
     env.execute()
