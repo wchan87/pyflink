@@ -16,10 +16,10 @@ services:
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
     ports:
-      - 8888:8888
-      - 8080:8080
-      - 10000:10000
-      - 10001:10001
+      - "8888:8888"
+      - "8080:8080"
+      - "10000:10000"
+      - "10001:10001"
   rest:
     image: tabulario/iceberg-rest
     container_name: iceberg-rest
@@ -46,8 +46,8 @@ services:
         aliases:
           - warehouse.minio
     ports:
-      - 9001:9001
-      - 9000:9000
+      - "9001:9001"
+      - "9000:9000"
     command: ["server", "/data", "--console-address", ":9001"]
   mc:
     depends_on:
@@ -116,6 +116,7 @@ services:
     container_name: kafka
     ports:
       - "9092:9092"
+      # check if it can be removed, may be needed because KAFKA_CONTROLLER_QUORUM_VOTERS has the container name as the host name
       - "9093:9093"
     networks:
       iceberg_net:
