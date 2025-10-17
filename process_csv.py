@@ -48,36 +48,6 @@ class CsvRecordMapper(MapFunction):
         )
         return row
 
-class CsvRecordMapperFlattened(MapFunction):
-    source_line_number: int
-    logger: logging.Logger
-
-    def __init__(self, logger: logging.Logger):
-        self.logger = logger
-        self.source_line_number = 1 # skips the header
-
-    def parse_winning_numbers(self, winning_numbers_str: str) -> list[int]:
-        return [int(x) for x in winning_numbers_str.strip().split(' ') if x.isdigit()]
-
-    def map(self, record: Row) -> Row:
-        # Row is accessed by index
-        draw_date: str = datetime.strftime(datetime.strptime(record[0], '%m/%d/%Y'), '%Y-%m-%d')
-        winning_numbers: list[int] = self.parse_winning_numbers(record[1])
-        self.source_line_number += 1 # increment by 1
-        self.logger.info(f'Reading data row: {record} from source line number: {self.source_line_number}')
-        row: Row = Row(
-            draw_date,
-            winning_numbers[0],
-            winning_numbers[1],
-            winning_numbers[2],
-            winning_numbers[3],
-            winning_numbers[4],
-            winning_numbers[5],
-            record[2],
-            self.source_line_number
-        )
-        return row
-
 def create_avro_schema() -> str:
     avro_schema = {
         'type': 'record',
@@ -91,35 +61,11 @@ def create_avro_schema() -> str:
     }
     return json.dumps(avro_schema)
 
-def create_avro_schema_flattened() -> str:
-    avro_schema = {
-        'type': 'record',
-        'name': 'Lottery',
-        'fields': [
-            {'name': 'draw_date', 'type': 'string'},
-            {'name': 'winning_number_1', 'type': 'int'},
-            {'name': 'winning_number_2', 'type': 'int'},
-            {'name': 'winning_number_3', 'type': 'int'},
-            {'name': 'winning_number_4', 'type': 'int'},
-            {'name': 'winning_number_5', 'type': 'int'},
-            {'name': 'winning_number_6', 'type': 'int'},
-            {'name': 'multiplier', 'type': ['int', 'null']},
-            {'name': 'source_line_number', 'type': 'int'},
-        ]
-    }
-    return json.dumps(avro_schema)
-
 def create_avro_type_info() -> RowTypeInfo:
     # Types.OBJECT_ARRAY(Types.INT()) is the right type instead of Types.PRIMITIVE_ARRAY(Types.INT()) would lead to "java.lang.RuntimeException: Failed to serialize row."
     return RowTypeInfo(
         [Types.STRING(), Types.OBJECT_ARRAY(Types.INT()), Types.INT(), Types.INT()],
         ['draw_date', 'winning_numbers', 'multiplier', 'source_line_number']
-    )
-
-def create_avro_type_info_flattened() -> RowTypeInfo:
-    return RowTypeInfo(
-        [Types.STRING(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT(), Types.INT()],
-        ['draw_date', 'winning_number_1', 'winning_number_2', 'winning_number_3', 'winning_number_4', 'winning_number_5', 'winning_number_6', 'multiplier', 'source_line_number']
     )
 
 def process():
@@ -163,11 +109,9 @@ def process():
         .set_bootstrap_servers('kafka:9092') \
         .set_record_serializer(
             KafkaRecordSerializationSchema.builder()
-                .set_topic('test-topic-2')
-                # .set_topic('test-topic')
+                .set_topic('lottery-topic')
                 # .set_key_serialization_schema(SimpleStringSchema())
                 .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema()))
-                # .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema_flattened()))
                 .build()
             ) \
         .set_delivery_guarantee(DeliveryGuarantee.EXACTLY_ONCE) \
@@ -175,7 +119,6 @@ def process():
         .build()
     # TODO figure out how to pass the key to Kafka
     ds.map(CsvRecordMapper(logger), output_type=create_avro_type_info()).sink_to(kafka_sink)
-    # ds.map(CsvRecordMapperFlattened(logger), output_type=create_avro_type_info_flattened()).sink_to(kafka_sink)
 
     # submit for execution
     env.execute()

@@ -59,15 +59,15 @@ The [docker-compose.yml](docker-compose.yml) was updated to include [apache/kafk
     ```
 3. Create topic to begin pushing events into
     ```bash
-    ./kafka-topics.sh --bootstrap-server localhost:9092 --create --topic test-topic 
+    ./kafka-topics.sh --bootstrap-server localhost:9092 --create --topic lottery-topic 
     ```
 4. Check topic to check events
     ```bash
-    ./kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic test-topic --from-beginning
+    ./kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic lottery-topic --from-beginning
     ```
 5. Delete topic to clean up events
     ```bash
-    ./kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic test-topic
+    ./kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic lottery-topic
     ```
 
 The original implementation of Kafka listeners/ports specified by the [override suggestions for default broker configuration](https://hub.docker.com/r/apache/kafka/#overriding-the-default-broker-configuration) was in turn overridden based on [multiple nodes](https://hub.docker.com/r/apache/kafka/#multiple-nodes) and [Connect to Apache Kafka Running in Docker](https://www.baeldung.com/kafka-docker-connection) such that
