@@ -34,17 +34,19 @@ class CsvRecordMapper(MapFunction):
     def parse_winning_numbers(self, winning_numbers_str: str) -> list[int]:
         return [int(x) for x in winning_numbers_str.strip().split(' ') if x.isdigit()]
 
-    def map(self, record: Row) -> tuple[str, Row]:
+    def map(self, record: Row) -> Row:
         # Row is accessed by index
         draw_date: str = datetime.strftime(datetime.strptime(record[0], '%m/%d/%Y'), '%Y-%m-%d')
+        winning_numbers: list[int] = self.parse_winning_numbers(record[1])
         self.source_line_number += 1 # increment by 1
+        self.logger.info(f'Reading data row: {record} from source line number: {self.source_line_number}')
         row: Row = Row(
             draw_date,
-            self.parse_winning_numbers(record[1]),
+            winning_numbers,
             record[2],
             self.source_line_number
         )
-        return draw_date, row
+        return row
 
 class CsvRecordMapperFlattened(MapFunction):
     source_line_number: int
@@ -108,8 +110,9 @@ def create_avro_schema_flattened() -> str:
     return json.dumps(avro_schema)
 
 def create_avro_type_info() -> RowTypeInfo:
+    # Types.OBJECT_ARRAY(Types.INT()) is the right type instead of Types.PRIMITIVE_ARRAY(Types.INT()) would lead to "java.lang.RuntimeException: Failed to serialize row."
     return RowTypeInfo(
-        [Types.STRING(), Types.PRIMITIVE_ARRAY(Types.INT()), Types.INT(), Types.INT()],
+        [Types.STRING(), Types.OBJECT_ARRAY(Types.INT()), Types.INT(), Types.INT()],
         ['draw_date', 'winning_numbers', 'multiplier', 'source_line_number']
     )
 
@@ -160,18 +163,19 @@ def process():
         .set_bootstrap_servers('kafka:9092') \
         .set_record_serializer(
             KafkaRecordSerializationSchema.builder()
-                .set_topic('test-topic')
+                .set_topic('test-topic-2')
+                # .set_topic('test-topic')
                 # .set_key_serialization_schema(SimpleStringSchema())
-                # .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema()))
-                .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema_flattened()))
+                .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema()))
+                # .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema_flattened()))
                 .build()
             ) \
         .set_delivery_guarantee(DeliveryGuarantee.EXACTLY_ONCE) \
         .set_property('transaction.timeout.ms', '600000')  \
         .build()
-    # FIXME this still fails on ClassCastException: class org.apache.flink.api.java.tuple.Tuple2 cannot be cast to class org.apache.flink.types.Row
-    # ds.map(CsvRecordMapper(logger), output_type=Types.TUPLE([Types.STRING(), create_avro_type_info()])).sink_to(kafka_sink)
-    ds.map(CsvRecordMapperFlattened(logger), output_type=create_avro_type_info_flattened()).sink_to(kafka_sink)
+    # TODO figure out how to pass the key to Kafka
+    ds.map(CsvRecordMapper(logger), output_type=create_avro_type_info()).sink_to(kafka_sink)
+    # ds.map(CsvRecordMapperFlattened(logger), output_type=create_avro_type_info_flattened()).sink_to(kafka_sink)
 
     # submit for execution
     env.execute()
