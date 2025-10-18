@@ -44,7 +44,7 @@ For Edge, disable automatic HTTPS rerouting, `edge://flags/#edge-automatic-https
 * Apache Spark Web UI - http://localhost:8080/
 * Jupyter Server - http://localhost:8888/
 * Hive - `jdbc:hive2://localhost:10000` - `beeline` / (no password)
-* [Kafka](#kafka) - `locahost:9000` (from your local machine), `host.docker.internal:9000` (from within any container) or `kafka:9000` (from within container attached to network)
+* [Kafka](#kafka) - `locahost:19092` (from your local machine), `host.docker.internal:9092` (from within any container) or `kafka:9092` (from within container attached to network)
 
 ## Kafka
 
@@ -266,6 +266,8 @@ Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apach
        --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
     ```
 
+You can use [lottery_avro_schema.json](lottery_avro_schema.json) as the Avro schema to read from the Kafka topic, `lottery-topic` to confirm that the events are written successfully.
+
 ### PyFlink Process Kafka
 
 Instructions below is based on [Flink's Python API](https://iceberg.apache.org/docs/latest/flink/#flinks-python-api) to submit PyFlink job, specifically [process_kafka.py](process_kafka.py)
@@ -285,3 +287,21 @@ Instructions below is based on [Flink's Python API](https://iceberg.apache.org/d
        --python /opt/flink/app/process_kafka.py \
        --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
     ```
+
+Connecting to [Iceberg via Hive interface](#iceberg), you should be able to run these commands to check on what's written out.
+```sql
+SHOW DATABASES;
+SHOW TABLES;
+SELECT COUNT(*) FROM default.lottery;
+SELECT * FROM default.lottery;
+```
+
+If you run into the following error, then it means the metadata in [MinIO](#minio) may have been deleted. You would have to interact with Iceberg REST interface to clean up the table as described below:
+```
+NotFoundException: Location does not exist: s3://warehouse/default/lottery/metadata/00000-....metadata.json
+```
+```bash
+curl -X DELETE \
+  http://localhost:8181/v1/namespaces/default/tables/lottery \
+  -H "Content-Type: application/json"
+```
