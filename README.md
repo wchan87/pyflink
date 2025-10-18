@@ -211,6 +211,20 @@ There appears to be additional work to integrate with Iceberg as a sink. See the
 * https://github.com/gordonmurray/apache_flink_and_iceberg
 * https://stackoverflow.com/questions/78545821/how-to-write-with-pyflink-flink-into-apache-iceberg-on-amazon-s3-with-table-api
 
+The  [org.apache.iceberg:iceberg-flink-runtime-1.20:1.10.0](https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-flink-runtime-1.20/1.10.0) library appears to be necessary to run Flink integration with Iceberg. Use the following command to download the jar in question
+```bash
+curl -o lib/iceberg-flink-runtime-1.20-1.10.0.jar https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-flink-runtime-1.20/1.10.0/iceberg-flink-runtime-1.20-1.10.0.jar
+```
+
+The `--jarfile` argument appears to only support one uber jar that is assembled via [build.gradle](build.gradle) as `build/libs/pyflink-1.0.0-uber.jar` which was extended to include this runtime.
+```bash
+gradle shadowJar --stacktrace
+```
+The `gradle.properties` was recommended to be added with the following property because "JVM garbage collector is thrashing" when `implementation('software.amazon.awssdk:bundle:2.35.9')` is added to [build.gradle](build.gradle) (which ran into another issue with archive having too many entries).
+```properties
+org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m
+```
+
 ## Data Stream Format 
 
 This section is for for additional references and notes regarding handling data stream formats such as CSV and possibly fixed width mixed record type files.
@@ -233,6 +247,8 @@ Some public and free data sources for testing streaming from [24 Free Public Dat
 
 ## PyFlink Job Submission
 
+### PyFlink Process CSV
+
 Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apache.org/flink/flink-docs-lts/docs/deployment/cli/#submitting-pyflink-jobs) to submit PyFlink job, specifically [process_csv.py](process_csv.py)
 1. Disable Windows path resolution
     ```bash
@@ -247,5 +263,25 @@ Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apach
        /opt/flink/bin/flink run \
        --jobmanager http://host.docker.internal:8081 \
        --python /opt/flink/app/process_csv.py \
+       --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
+    ```
+
+### PyFlink Process Kafka
+
+Instructions below is based on [Flink's Python API](https://iceberg.apache.org/docs/latest/flink/#flinks-python-api) to submit PyFlink job, specifically [process_kafka.py](process_kafka.py)
+1. Disable Windows path resolution
+    ```bash
+    export MSYS_NO_PATHCONV=1
+    ```
+2. Run Flink command to run the script. The `--network` is necessary because the standalone container doesn't know what `iceberg-rest` is.
+    ```bash
+    docker run -it --rm \
+       --network pyflink_iceberg_net \
+       -v $(pwd):/opt/flink/app \
+       -v $(pwd)/build/libs/pyflink-1.0.0-uber.jar:/opt/flink/lib/pyflink-1.0.0-uber.jar \
+       pyflink:1.20.2 \
+       /opt/flink/bin/flink run \
+       --jobmanager http://host.docker.internal:8081 \
+       --python /opt/flink/app/process_kafka.py \
        --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
     ```
