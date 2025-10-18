@@ -227,7 +227,7 @@ org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m
 
 ## Data Stream Format 
 
-This section is for for additional references and notes regarding handling data stream formats such as CSV and possibly fixed width mixed record type files.
+This section is for additional references and notes regarding handling data stream formats such as CSV and possibly mixed record-type fixed-width data files.
 
 ### Data Stream Format - CSV
 
@@ -244,6 +244,22 @@ Some public and free data sources for testing streaming from [24 Free Public Dat
 * https://developer.ibm.com/exchanges/data/
 * https://learn.microsoft.com/en-us/azure/open-datasets/dataset-catalog
 * https://www.who.int/data/
+
+There are example formats for fixed-width files but publicly accessible datasets are rare due to the shift towards newer formats like CSV/JSON. There are two sets of mixed record-type fixed-width data files that can be used for testing purposes to prove data pipeline can handle these types of files. You may want to leverage a plugin such as [Fixed Width Data Visualizer plugin for Notepad++](https://github.com/shriprem/FWDataViz) to read these files.
+* [NOAA ISD](https://registry.opendata.aws/noaa-isd/)
+  * [AWS S3 Explorer > noaa-isd-pds > data](https://noaa-isd-pds.s3.amazonaws.com/index.html#data/)
+    * You may need to run a command to un-gzip the text for readability
+      ```bash
+      gunzip -c 010010-99999-2024.gz > 010010-99999-2024
+      ```
+  * [Technical Documentation](https://www.ncei.noaa.gov/data/global-hourly/doc/isd-format-document.pdf)
+* [Public Use Microdata Sample (PUMS) Microdata Dataset](https://www.census.gov/data/datasets/2000/dec/microdata.html)
+  * [File Server > census_2000 > datasets > PUMS > OnePercent](https://www2.census.gov/census_2000/datasets/PUMS/OnePercent/)
+  * [Technical Documentation](https://www2.census.gov/programs-surveys/decennial/2000/technical-documentation/complete-tech-docs/pums.pdf)
+
+Here are some additional fixed-width file formats that has documentation on how to interpret but no publicly available dataset
+* [NACHA ACH](https://achdevguide.nacha.org/ach-file-details) - There is common file examples that are described by [ACH PRO](https://www.ach-pro.com/post/common-nacha-file-examples) if you need to see how it looks like.
+* [NSCC Positions & Valuations (POV)](https://www.dtcc.com/-/media/Files/Downloads/Investment-Product-Services/Insurance-and-Retirement-Services/Participant-Support-Services/Record-Layouts/Positions-and-Valuations/POV_Layouts_web_version.xls)
 
 ## PyFlink Job Submission
 
