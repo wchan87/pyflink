@@ -274,12 +274,11 @@ Instructions below is based on [Submitting PyFlink Jobs](https://nightlies.apach
     ```bash
     docker run -it --rm \
        -v $(pwd):/opt/flink/app \
-       -v $(pwd)/build/libs/pyflink-1.0.0-uber.jar:/opt/flink/lib/pyflink-1.0.0-uber.jar \
        pyflink:1.20.2 \
        /opt/flink/bin/flink run \
        --jobmanager http://host.docker.internal:8081 \
        --python /opt/flink/app/process_csv.py \
-       --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
+       --jarfile /opt/flink/app/build/libs/pyflink-1.0.0-uber.jar
     ```
 
 You can use [lottery_avro_schema.json](lottery_avro_schema.json) as the Avro schema to read from the Kafka topic, `lottery-topic` to confirm that the events are written successfully.
@@ -291,7 +290,7 @@ Instructions below is based on [Flink's Python API](https://iceberg.apache.org/d
     ```bash
     export MSYS_NO_PATHCONV=1
     ```
-2. Run Flink command to run the script. The `--network` is necessary because the standalone container doesn't know what `iceberg-rest` is.
+2. Run Flink command to run the script
     ```bash
     docker run -it --rm \
        --network pyflink_iceberg_net \
@@ -303,6 +302,9 @@ Instructions below is based on [Flink's Python API](https://iceberg.apache.org/d
        --python /opt/flink/app/process_kafka.py \
        --jarfile /opt/flink/lib/pyflink-1.0.0-uber.jar
     ```
+   * The `--network` is necessary because the standalone container doesn't know what `iceberg-rest` is.
+   * The `-v $(pwd)/build/libs/pyflink-1.0.0-uber.jar:/opt/flink/lib/pyflink-1.0.0-uber.jar` is necessary to allow Flink CLI to pull in classes like `org.apache.hadoop.conf.Configuration` to interact with Iceberg (Hive). This appears to be necessary to run the DDL scripts (i.e., `CREATE` statements) via `execute_sql`.
+   * The `--jarfile` is still necessary to propagate the uber jar to Flink Job/Task Manager.
 
 Connecting to [Iceberg via Hive interface](#iceberg), you should be able to run these commands to check on what's written out.
 ```sql
