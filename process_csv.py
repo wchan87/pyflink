@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 import logging
 import sys
+import uuid
 
 from pyflink.common import Row, Types
 # from pyflink.common.serialization import SimpleStringSchema
@@ -24,12 +25,14 @@ def create_csv_schema() -> CsvSchema:
     return csv_schema
 
 class CsvRecordMapper(MapFunction):
+    file_uuid: str
     source_line_number: int
     logger: logging.Logger
 
-    def __init__(self, logger: logging.Logger):
-        self.logger = logger
+    def __init__(self, file_uuid: str, logger: logging.Logger):
+        self.file_uuid = file_uuid
         self.source_line_number = 1 # skips the header
+        self.logger = logger
 
     def parse_winning_numbers(self, winning_numbers_str: str) -> list[int]:
         return [int(x) for x in winning_numbers_str.strip().split(' ') if x.isdigit()]
@@ -41,6 +44,7 @@ class CsvRecordMapper(MapFunction):
         self.source_line_number += 1 # increment by 1
         self.logger.info(f'Reading data row: {record} from source line number: {self.source_line_number}')
         row: Row = Row(
+            self.file_uuid,
             draw_date,
             winning_numbers,
             record[2],
@@ -64,9 +68,53 @@ def create_avro_schema() -> str:
 def create_avro_type_info() -> RowTypeInfo:
     # Types.OBJECT_ARRAY(Types.INT()) is the right type instead of Types.PRIMITIVE_ARRAY(Types.INT()) would lead to "java.lang.RuntimeException: Failed to serialize row."
     return RowTypeInfo(
-        [Types.STRING(), Types.OBJECT_ARRAY(Types.INT()), Types.INT(), Types.INT()],
-        ['draw_date', 'winning_numbers', 'multiplier', 'source_line_number']
+        [Types.STRING(), Types.STRING(), Types.OBJECT_ARRAY(Types.INT()), Types.INT(), Types.INT()],
+        ['file_uuid', 'draw_date', 'winning_numbers', 'multiplier', 'source_line_number']
     )
+
+def write_to_kafka_via_datastream_connector(ds: DataStream, file_uuid: str, logger: logging.Logger):
+    # define the sink
+    # transaction.timeout.ms is needed because EXACTLY_ONCE require the broker timeout to be aligned with the producer (i.e., sink here)
+    kafka_sink: KafkaSink = KafkaSink.builder() \
+        .set_bootstrap_servers('kafka:9092') \
+        .set_record_serializer(
+            KafkaRecordSerializationSchema.builder()
+                .set_topic('lottery-topic')
+                # .set_key_serialization_schema(SimpleStringSchema())
+                .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema()))
+                .build()
+            ) \
+        .set_delivery_guarantee(DeliveryGuarantee.EXACTLY_ONCE) \
+        .set_property('transaction.timeout.ms', '600000')  \
+        .build()
+    # TODO figure out how to pass the key to Kafka
+    ds.map(CsvRecordMapper(file_uuid, logger), output_type=create_avro_type_info()).sink_to(kafka_sink)
+
+def write_to_kafka_via_table_api_connector(t_env: StreamTableEnvironment, ds: DataStream, file_uuid: str, logger: logging.Logger):
+    t_env.execute_sql('''
+        CREATE TABLE lottery_topic (
+            -- key
+            file_uuid STRING,
+            -- value
+            draw_date STRING,
+            winning_numbers ARRAY<INT>,
+            multiplier INT NULL,
+            source_line_number INT
+        ) WITH (
+            'connector' = 'kafka',
+            'topic' = 'lottery-topic',
+            'properties.bootstrap.servers' = 'kafka:9092',
+            'key.format' = 'raw',
+            'key.fields' = 'file_uuid',
+            'value.format' = 'avro', -- format also works
+            'value.fields-include' = 'EXCEPT_KEY',
+            'sink.delivery-guarantee' = 'exactly-once',
+            'sink.transactional-id-prefix' = 'flink',
+            'properties.transaction.timeout.ms' = '600000'
+        )
+    ''')
+    t_env.from_data_stream(ds.map(CsvRecordMapper(file_uuid, logger), output_type=create_avro_type_info())) \
+        .execute_insert('lottery_topic')
 
 def process():
     env = StreamExecutionEnvironment.get_execution_environment()
@@ -102,23 +150,10 @@ def process():
         SELECT * FROM lottery WHERE draw_date <> 'Draw Date'
     ''')
     ds: DataStream = t_env.to_data_stream(table)
+    file_uuid: str = str(uuid.uuid4())
 
-    # define the sink
-    # transaction.timeout.ms is needed because EXACTLY_ONCE require the broker timeout to be aligned with the producer (i.e., sink here)
-    kafka_sink: KafkaSink = KafkaSink.builder() \
-        .set_bootstrap_servers('kafka:9092') \
-        .set_record_serializer(
-            KafkaRecordSerializationSchema.builder()
-                .set_topic('lottery-topic')
-                # .set_key_serialization_schema(SimpleStringSchema())
-                .set_value_serialization_schema(AvroRowSerializationSchema(avro_schema_string=create_avro_schema()))
-                .build()
-            ) \
-        .set_delivery_guarantee(DeliveryGuarantee.EXACTLY_ONCE) \
-        .set_property('transaction.timeout.ms', '600000')  \
-        .build()
-    # TODO figure out how to pass the key to Kafka
-    ds.map(CsvRecordMapper(logger), output_type=create_avro_type_info()).sink_to(kafka_sink)
+    write_to_kafka_via_table_api_connector(t_env, ds, file_uuid, logger)
+    # write_to_kafka_via_datastream_connector(ds, file_uuid, logger)
 
     # submit for execution
     env.execute()
