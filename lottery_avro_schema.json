@@ -2,9 +2,10 @@
   "type": "record",
   "name": "Lottery",
   "fields": [
+    { "name": "file_uuid", "type": "string" },
     { "name": "draw_date", "type": "string" },
     { "name": "winning_numbers", "type": {"type": "array", "items": "int"} },
-    { "name": "multiplier", "type": ["int", "null"] },
+    { "name": "multiplier", "type": ["null", "int"] },
     { "name": "source_line_number", "type": "int" }
   ]
 }

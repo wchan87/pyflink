@@ -17,8 +17,8 @@ from pyflink.table import DataTypes, StreamTableEnvironment, EnvironmentSettings
 def create_csv_schema() -> CsvSchema:
     csv_schema = CsvSchema.builder() \
         .add_string_column('Draw Date') \
-        .add_array_column('Winning Numbers', ' ', element_type=DataTypes.SMALLINT()) \
-        .add_number_column('Multiplier', number_type=DataTypes.SMALLINT()) \
+        .add_array_column('Winning Numbers', ' ', element_type=DataTypes.INT()) \
+        .add_number_column('Multiplier', number_type=DataTypes.INT()) \
         .set_column_separator(',') \
         .set_use_header() \
         .build()
@@ -57,9 +57,10 @@ def create_avro_schema() -> str:
         'type': 'record',
         'name': 'Lottery',
         'fields': [
+            {'name': 'file_uuid', 'type': 'string'},
             {'name': 'draw_date', 'type': 'string'},
             {'name': 'winning_numbers', 'type': {'type': 'array', 'items': 'int'}},
-            {'name': 'multiplier', 'type': ['int', 'null']},
+            {'name': 'multiplier', 'type': ['null', 'int']},
             {'name': 'source_line_number', 'type': 'int'},
         ]
     }
@@ -107,7 +108,8 @@ def write_to_kafka_via_table_api_connector(t_env: StreamTableEnvironment, ds: Da
             'key.format' = 'raw',
             'key.fields' = 'file_uuid',
             'value.format' = 'avro', -- format also works
-            'value.fields-include' = 'EXCEPT_KEY',
+            -- 'value.fields-include' = 'EXCEPT_KEY',
+            'value.fields-include' = 'ALL', -- default here but to be explicit
             'sink.delivery-guarantee' = 'exactly-once',
             'sink.transactional-id-prefix' = 'flink',
             'properties.transaction.timeout.ms' = '600000'
@@ -137,7 +139,7 @@ def process():
         CREATE TABLE lottery (
             draw_date STRING,
             winning_numbers STRING,
-            multiplier SMALLINT
+            multiplier INT
         ) WITH (
             'connector' = 'filesystem',
             'path' = 's3://raw/Lottery_Powerball_Winning_Numbers__Beginning_2010.csv',
